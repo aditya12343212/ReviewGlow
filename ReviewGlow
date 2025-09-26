@@ -1,0 +1,87 @@
+import numpy as np
+import tensorflow as tf
+import tensorflow_datasets as tfds
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# Step 1: Load IMDb Dataset (Predefined)
+# Load IMDb dataset using TensorFlow Datasets
+(train_data, test_data), info = tfds.load('imdb_reviews', split=['train', 'test'], as_supervised=True, with_info=True)
+
+# Convert to lists for sklearn and TensorFlow
+X_train, y_train = [], []
+X_test, y_test = [], []
+
+for text, label in train_data:
+    X_train.append(text.numpy().decode('utf-8'))
+    y_train.append(label.numpy())
+for text, label in test_data:
+    X_test.append(text.numpy().decode('utf-8'))
+    y_test.append(label.numpy())
+
+y_train = np.array(y_train)
+y_test = np.array(y_test)
+
+# Step 2: Sklearn Model (ML: Logistic Regression with TF-IDF)
+# NLP: TF-IDF Vectorization
+vectorizer = TfidfVectorizer(max_features=10000, stop_words='english')
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
+
+# Train Logistic Regression
+lr_model = LogisticRegression(max_iter=200)
+lr_model.fit(X_train_tfidf, y_train)
+
+# Evaluate
+y_pred_lr = lr_model.predict(X_test_tfidf)
+lr_accuracy = accuracy_score(y_test, y_pred_lr)
+print(f"Sklearn Logistic Regression Test Accuracy: {lr_accuracy:.4f}")
+
+# Step 3: TensorFlow RNN Model (DL)
+# NLP: Tokenization and Padding
+vocab_size = 10000
+max_len = 100
+tokenizer = Tokenizer(num_words=vocab_size, oov_token='<OOV>')
+tokenizer.fit_on_texts(X_train)
+
+X_train_seq = tokenizer.texts_to_sequences(X_train)
+X_test_seq = tokenizer.texts_to_sequences(X_test)
+
+X_train_padded = pad_sequences(X_train_seq, maxlen=max_len, padding='post', truncating='post')
+X_test_padded = pad_sequences(X_test_seq, maxlen=max_len, padding='post', truncating='post')
+
+# Define RNN Model with LSTM
+model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size, 64, input_length=max_len),
+    tf.keras.layers.LSTM(64, return_sequences=False),
+    tf.keras.layers.Dense(32, activation='relu'),
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+
+# Compile model
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# Train model
+history = model.fit(X_train_padded, y_train, epochs=5, batch_size=32, validation_split=0.2, verbose=1)
+
+# Evaluate
+test_loss, test_acc = model.evaluate(X_test_padded, y_test, verbose=0)
+print(f"TensorFlow LSTM Test Accuracy: {test_acc:.4f}")
+
+# Step 4: Predict on Custom Text (NLP: Inference)
+def predict_sentiment(text, model, tokenizer, max_len):
+    seq = tokenizer.texts_to_sequences([text])
+    padded = pad_sequences(seq, maxlen=max_len, padding='post', truncating='post')
+    pred = model.predict(padded, verbose=0)[0][0]
+    return "Positive" if pred > 0.5 else "Negative"
+
+# Test predictions
+test_texts = [
+    "This movie was absolutely fantastic and thrilling!",
+    "Terrible plot and boring acting."
+]
+for text in test_texts:
+    print(f"'{text}' -> {predict_sentiment(text, model, tokenizer, max_len)}")
